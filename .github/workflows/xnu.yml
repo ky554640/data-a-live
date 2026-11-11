@@ -57,32 +57,22 @@ jobs:
         run: |
           brew install jq gum bash cmake ninja
           sw_vers
-          echo "== installed Xcode apps =="
-          ls -d /Applications/Xcode*.app 2>/dev/null || echo "(none)"
-          # xnu-8796 needs Xcode 15.x (its iig matches the IORPC ABI; Xcode 16's
-          # iig emits IORPC.kernelContent). macos-15 ships Xcode 16 by default, so
-          # install Xcode 15.4 with xcodes when no 15.x app is already present.
-          XC15=$(ls -d /Applications/Xcode_15*.app 2>/dev/null | sort -V | head -1)
-          if [ -z "$XC15" ]; then
-            echo "== installing Xcode 15.4 via xcodes =="
-            brew install xcodes
-            xcodes install 15.4 --experimental-unxip --color --select
-            XC15=$(ls -d /Applications/Xcode_15*.app 2>/dev/null | sort -V | head -1)
-          fi
-          if [ -z "$XC15" ]; then
-            echo "::error::Xcode 15.x not found after install; falling back to any Xcode"
-            XC15=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | head -1)
-          fi
-          echo "DEVELOPER_DIR=$XC15/Contents/Developer" >> "$GITHUB_ENV"
-          sudo xcode-select -s "$XC15"
+          # Replay pregenerated iig outputs (xnu/iig-pregen/, committed) instead of
+          # running the iig tool. Only iig is version-bound: Xcode 16+ iig emits an
+          # IORPC.kernelContent layout that xnu-8796 lacks, while Xcode 15 (retired
+          # with macos-14) generated the ABI the tree expects. The pregen files are
+          # Xcode 15 iig output, hash-checked against the .iig inputs at build time.
+          xcode-select -p
           xcodebuild -version
-          xcrun --find iig
 
       - name: Build
         working-directory: dxb
         env:
           # keep going after errors so one run reports every compile failure
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+          # Replay Xcode 15 iig output so the kernel builds under Xcode 16.
+          IIG: ${{ github.workspace }}/tools/xnu-iig-cache.py
+          XNU_IIG_CACHE: ${{ github.workspace }}/xnu/iig-pregen
         run: bash build.sh
 
       - name: Package build tree for local compiles
