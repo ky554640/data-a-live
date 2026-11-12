@@ -1,0 +1,145 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 26717eb..a11b22c 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -497,6 +497,88 @@ static const struct cdevsw sweet_ufs_cdevsw = {
+ 	.d_type       = D_DISK,
+ };
+ 
++#if defined(PANDORA)
++/*
++ * SMMU bypass for the UFS stream (ID 0x60).  On lafa (realme) the bootloader hands
++ * over with apps_smmu mapping the UFS stream through a stage-1 page table (S2CR
++ * TYPE=translation, context bank owned by the firmware) that only covers the
++ * firmware's own request-list buffer, not the kernel's DMA allocation below.  The
++ * kernel then writes su.dma_pa into UTRLBA and the first doorbell DMA faults on the
++ * SMMU and resets the SoC (Qualcomm 900E).  Re-map the stream as physical
++ * pass-through the way Linux's qcom_smmu bypass_quirk does: reserve a context bank
++ * (from the top), set SCTLR=0 (stage 1 off) and CBAR.TYPE=S1_TRANS_S2_BYPASS, and
++ * point S2CR (TYPE=translation, CBNDX=that bank) at it.  S2CR is written before SMR.
++ * This is a no-op on pandora, whose firmware already leaves the stream bypassed.
++ */
++#define PU_SMMU_PA      0x15000000u
++#define PU_SMMU_SIZE    0xd0000u
++
++static unsigned
++pu_smmu_addr_bits(unsigned code)
++{
++	switch (code) {
++	case 0: return 32; case 1: return 36; case 2: return 40;
++	case 3: return 42; case 4: return 44; case 5: return 48;
++	default: return 0;
++	}
++}
++
++static int
++ufs_smmu_bypass(void)
++{
++	volatile uint32_t *s = (volatile uint32_t *)ml_io_map(PU_SMMU_PA, PU_SMMU_SIZE);
++	if (!s) {
++		printf("PANDORA UFS: SMMU map failed\n");
++		return ENXIO;
++	}
++	uint32_t idr0 = s[0x20 / 4], idr1 = s[0x24 / 4], idr2 = s[0x28 / 4];
++	if (!(idr0 & (1U << 30)) || !(idr2 & (1U << 12))) {
++		printf("PANDORA UFS: SMMU AArch64 stage 1 unsupported\n");
++		return ENXIO;
++	}
++	for (unsigned shift = 0; shift <= 8; shift += 4) {
++		unsigned bits = pu_smmu_addr_bits((idr2 >> shift) & 15);
++		if (!bits || su.dma_pa >= (1ULL << bits) ||
++		    DMA_SIZE > (1ULL << bits) - su.dma_pa) {
++			printf("PANDORA UFS: DMA 0x%llx exceeds SMMU address width\n", su.dma_pa);
++			return ENXIO;
++		}
++	}
++	unsigned groups = idr0 & 255, banks = idr1 & 255;
++	unsigned pages = 1U << (((idr1 >> 28) & 7) + 1);
++	if ((idr1 >> 31) || !groups || pages > 128 || banks < 2 || banks > 128 ||
++	    (pages + banks) * 4096 > PU_SMMU_SIZE) {
++		printf("PANDORA UFS: unsupported SMMU geometry\n");
++		return ENXIO;
++	}
++	if (groups > 128) groups = 128;
++
++	int slot = -1, bank = -1;
++	for (int fromTop = 0; fromTop < 8 && bank < 0; fromTop++) {
++		if (fromTop >= (int)banks - 1) break;
++		unsigned tryBank = banks - 1 - fromTop;
++		int freeSlot = -1, matchSlot = -1, conflict = 0;
++		for (unsigned i = 0; i < groups; i++) {
++			uint32_t smr = s[(0x800 + 4 * i) / 4];
++			if (!(smr & 0x80000000U)) {
++				if (freeSlot < 0) freeSlot = (int)i;
++				continue;
++			}
++			uint32_t s2cr = s[(0xc00 + 4 * i) / 4];
++			uint32_t mask = (smr >> 16) & 0x7fff;
++			int isUfs = ((smr ^ 0x60) & 0xffff & ~mask) == 0;
++			int ourBank = ((s2cr >> 16) & 3) == 0 && (s2cr & 255) == tryBank;
++			if (isUfs) {
++				matchSlot = (int)i;
++				if (mask || !ourBank) conflict = 1;
++			} else if (ourBank) {
++				conflict = 1;
++			}
++		}
++		if (!conflict) {
++			uint32_t sctlr = s[(pages + tryBank) * 4096 / 4];
++			uint32_t cbar = s[(0x1000 + 4 * tryBank) / 4];
++			if ((sctlr & 1) == 0 && (matchSlot >= 0 ? cbar == 0x10000 : 1)) {
++				bank = (int)tryBank;
++				slot = matchSlot >= 0 ? matchSlot : freeSlot;
++			}
++		}
++	}
++	if (bank < 0 || slot < 0) {
++		printf("PANDORA UFS: no free SMMU stream group/bank (slot %d bank %d)\n", slot, bank);
++		return ENXIO;
++	}
++
++	uint32_t cb = (pages + bank) * 4096;
++	s[cb / 4] = 0;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	if (s[cb / 4] != 0) {
++		printf("PANDORA UFS: SMMU bypass disable readback\n");
++		return EIO;
++	}
++	s[(0x1800 + 4 * bank) / 4] = 1;
++	s[(0x1000 + 4 * bank) / 4] = 0x10000;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	if (s[(0x1800 + 4 * bank) / 4] != 1 ||
++	    s[(0x1000 + 4 * bank) / 4] != 0x10000 || s[cb / 4] != 0) {
++		printf("PANDORA UFS: SMMU VA64 bypass readback\n");
++		return EIO;
++	}
++	s[(0xc00 + 4 * slot) / 4] = (uint32_t)bank;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	s[(0x800 + 4 * slot) / 4] = 0x80000000U | 0x60;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	if (s[(0x800 + 4 * slot) / 4] != (0x80000000U | 0x60) ||
++	    s[(0xc00 + 4 * slot) / 4] != (uint32_t)bank) {
++		printf("PANDORA UFS: SMMU stream mapping readback\n");
++		return EIO;
++	}
++	printf("PANDORA UFS: SMMU bypass stream 0x60 slot %d bank %d\n", slot, bank);
++	return 0;
++}
++#endif /* PANDORA */
++
+ static int
+ sweet_ufs_init(void)
+ {
+@@ -530,6 +612,12 @@ sweet_ufs_init(void)
+ 	su.lun = 0;
+ 	su.secsize = DEV_BSIZE;
+ 
++#if defined(PANDORA)
++	error = ufs_smmu_bypass();
++	if (error) {
++		return error;
++	}
++#endif
+ 	lck_mtx_lock(&sweet_ufs_lock);
+ 	error = ufs_take_over_host();
+ #if defined(PANDORA)
