@@ -1,0 +1,15 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -1617,7 +1617,7 @@
+-#if defined(FUXI)
++#if defined(FUXI) || defined(PANDORA)
+     if (!error) {
+         static const uint8_t active[6]={0x1b,0,0,0,0x10,0};
+         su.lun=0xd0; /* UFS device well-known LUN, not a block-data LUN. */
+         for (int i=0;i<3 && (error=ufs_scsi(active,sizeof(active),0,false));i++) { }
+         su.lun=0;
+-        printf("FUXI UFS device ACTIVE power command result=%d\n",error);
++        printf("UFS device ACTIVE power command result=%d\n",error);
+     }
+ #endif
