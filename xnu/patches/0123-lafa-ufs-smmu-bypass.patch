@@ -1,10 +1,10 @@
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -1405,6 +1405,124 @@
+@@ -1404,6 +1404,124 @@
+ }
  
  #endif /* PANDORA */
- 
 +#if defined(PANDORA)
 +/*
 + * SMMU bypass for the UFS stream (ID 0x60).  On lafa (realme) the bootloader hands
@@ -126,16 +126,16 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
  
  static int
  sweet_ufs_init(void)
-@@ -1597,6 +1597,12 @@
+@@ -1477,6 +1595,12 @@
+ #endif
  	su.lun = 0;
  	su.secsize = DEV_BSIZE;
- 
 +#if defined(PANDORA)
 +	error = ufs_smmu_bypass();
 +	if (error) {
 +		return error;
 +	}
 +#endif
+ 
  	lck_mtx_lock(&sweet_ufs_lock);
  #if defined(FUXI)
- 	printf("FUXI UFS diagnostic: CAP=0x%x HCS=0x%x HCE=0x%x DMA=0x%llx\n",
