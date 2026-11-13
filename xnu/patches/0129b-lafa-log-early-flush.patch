@@ -1,0 +1,38 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 85eed18..09125d6 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -52,6 +52,8 @@ static void sweet_log_start(void);
+ #if defined(PANDORA)
+ static void pandora_log_start(void);
+ static void pf_load_extents(void);
++static int pl_flush(void);
++static void pandora_halt_restart(unsigned int type);
+ #endif
+ extern void sweet_sample_start(void);
+ extern void sweet_keys_init(void);
+@@ -1651,6 +1653,24 @@ sweet_ufs_init(void)
+ 		}
+ 	}
+ 	if (!fx_root) rw=0;
++#endif
++#if defined(PANDORA)
++	/*
++	 * Prepare the panic log as soon as the extent tables are loaded and the
++	 * partition bounds are known: hook the reset path and enable writes now,
++	 * so a panic anywhere in the mount path below still flushes the console
++	 * ring to the pinned log file.  pandora_log_start() (later) starts the
++	 * periodic thread and sets these again; doing it here only makes the
++	 * first flush happen earlier.
++	 */
++	if (!error && pl_next > 0) {
++		su.writable = (rw != 0);
++		pl_ready = true;
++		PE_halt_restart = pandora_halt_restart;
++		(void)pl_flush();
++		printf("PANDORA LOG: early flush after extent load (%u extents, writable %d, %llu bytes)\n",
++		    pl_next, su.writable, pl_flushed);
++	}
+ #endif
+ 	lck_mtx_unlock(&sweet_ufs_lock);
+ 	if (error) {
