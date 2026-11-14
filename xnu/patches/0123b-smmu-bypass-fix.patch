@@ -1,0 +1,47 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 443c4ea..c9f0bd7 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -1383,7 +1383,12 @@ ufs_smmu_bypass(void)
+ 		printf("PANDORA UFS: SMMU map failed\n");
+ 		return ENXIO;
+ 	}
+-	uint32_t idr0 = s[0x20 / 4], idr1 = s[0x24 / 4], idr2 = s[0x28 / 4];
++	uint32_t scr0 = s[0x00 / 4], idr0 = s[0x20 / 4], idr1 = s[0x24 / 4], idr2 = s[0x28 / 4];
++	if (scr0 & 1) {
++		/* CLIENTPD: the whole non-secure SMMU is already bypassing. */
++		printf("PANDORA UFS: SMMU already bypassing (sCR0=%08x)\n", scr0);
++		return 0;
++	}
+ 	if (!(idr0 & (1U << 30)) || !(idr2 & (1U << 12))) {
+ 		printf("PANDORA UFS: SMMU AArch64 stage 1 unsupported\n");
+ 		return ENXIO;
+@@ -1429,8 +1434,9 @@ ufs_smmu_bypass(void)
+ 		}
+ 		if (!conflict) {
+ 			uint32_t sctlr = s[(pages + tryBank) * 4096 / 4];
+-			uint32_t cbar = s[(0x1000 + 4 * tryBank) / 4];
+-			if ((sctlr & 1) == 0 && (matchSlot >= 0 ? cbar == 0x10000 : 1)) {
++			if ((sctlr & 1) == 0) {
++				/* Stage 1 off: usable as a bypass bank (SCTLR may hold fault bits
++				 * like 0xe0; those are left as-is, only M must be clear). */
+ 				bank = (int)tryBank;
+ 				slot = matchSlot >= 0 ? matchSlot : freeSlot;
+ 			}
+@@ -1448,11 +1454,14 @@ ufs_smmu_bypass(void)
+ 		printf("PANDORA UFS: SMMU bypass disable readback\n");
+ 		return EIO;
+ 	}
++	uint32_t cbar = s[(0x1000 + 4 * bank) / 4];
+ 	s[(0x1800 + 4 * bank) / 4] = 1;
+-	s[(0x1000 + 4 * bank) / 4] = 0x10000;
++	if (((cbar >> 16) & 3) != 1) {
++		s[(0x1000 + 4 * bank) / 4] = 0x10000;
++	}
+ 	__asm__ volatile ("dsb sy" ::: "memory");
+ 	if (s[(0x1800 + 4 * bank) / 4] != 1 ||
+-	    s[(0x1000 + 4 * bank) / 4] != 0x10000 || s[cb / 4] != 0) {
++	    ((s[(0x1000 + 4 * bank) / 4] >> 16) & 3) != 1 || s[cb / 4] != 0) {
+ 		printf("PANDORA UFS: SMMU VA64 bypass readback\n");
+ 		return EIO;
+ 	}
