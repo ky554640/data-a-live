@@ -1,0 +1,85 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index e211fad..54868cb 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -1341,14 +1341,16 @@ ufs_smmu_bypass(void)
+ 	}
+ 	if (bank < 0 || slot < 0) {
+ 		/*
+-		 * lafa / SM8850: the ABL owns every context bank (all SCTLR.M set)
+-		 * and leaves no free SMR slot, so the scan above always fails.  A
+-		 * free context bank is not actually required: UFS DMA is physical,
+-		 * so it is enough to point stream 0x60 at a bypass S2CR (TYPE=1).
+-		 * Reuse the slot that already matches 0x60, or the first free SMR,
+-		 * and leave every other stream (DPU/GPU/WLAN) alone.  A global
+-		 * sCR0.CLIENTPD bypass would break the boot framebuffer, so it is
+-		 * only a last resort when the SMR table is completely full.
++		 * lafa / SM8850: the ABL owns every context bank, so the scan above
++		 * always fails.  Aborting here hides the real UFS state, so make the
++		 * SMMU setup best-effort and pickable with the ufssmmu boot-arg:
++		 *   0 = leave the SMMU exactly as the ABL configured it (default)
++		 *   1 = point stream 0x60 at a bypass S2CR (TYPE=1)
++		 *   2 = global sCR0.CLIENTPD bypass
++		 *   3 = clear SCTLR.M on the context bank UFS currently uses
++		 * Every path prints the register readbacks and returns success so the
++		 * UFS power-on / GPT / find_partition chain can run and show where it
++		 * actually breaks.  Switching strategy only needs a cmdline change.
+ 		 */
+ 		int ufsSlot = -1, freeSMR = -1;
+ 		for (unsigned i = 0; i < groups; i++) {
+@@ -1361,28 +1363,40 @@ ufs_smmu_bypass(void)
+ 			if (((smr ^ 0x60) & 0xffff & ~mask) == 0) ufsSlot = (int)i;
+ 		}
+ 		int use = ufsSlot >= 0 ? ufsSlot : freeSMR;
+-		printf("PANDORA UFS: no free bank, direct bypass (slot %d ufs %d free %d sCR0=%08x)\n",
+-		    slot, ufsSlot, freeSMR, scr0);
+-		if (use < 0) {
++		uint32_t mode = 0;
++		PE_parse_boot_argn("ufssmmu", &mode, sizeof(mode));
++		printf("PANDORA UFS: no free bank (slot %d bank %d ufs %d free %d sCR0=%08x mode %u)\n",
++		    slot, bank, ufsSlot, freeSMR, scr0, mode);
++		if (mode == 2) {
+ 			s[0] = scr0 | 1U;
+ 			__asm__ volatile ("dsb sy" ::: "memory");
+-			if (!(s[0] & 1U)) {
+-				printf("PANDORA UFS: SMMU global bypass readback\n");
+-				return EIO;
+-			}
+-			printf("PANDORA UFS: SMMU global CLIENTPD bypass (sCR0=%08x)\n", s[0]);
++			printf("PANDORA UFS: SMMU global CLIENTPD sCR0 %08x->%08x\n", scr0, s[0]);
++			return 0;
++		}
++		if (mode == 0 || use < 0) {
++			printf("PANDORA UFS: SMMU left as-is (mode %u)\n", mode);
++			return 0;
++		}
++		uint32_t s2cr0 = s[(0xc00 + 4 * use) / 4];
++		uint32_t smr0 = s[(0x800 + 4 * use) / 4];
++		if (mode == 3) {
++			unsigned cb = (s2cr0 & 255) < banks ? (s2cr0 & 255) : 0;
++			unsigned cbreg = (pages + cb) * 4096;
++			uint32_t sctlr0 = s[cbreg / 4];
++			s[cbreg / 4] = sctlr0 & ~1U;
++			__asm__ volatile ("dsb sy" ::: "memory");
++			printf("PANDORA UFS: SMMU bank %u SCTLR %08x->%08x (S2CR %08x)\n",
++			    cb, sctlr0, s[cbreg / 4], s2cr0);
+ 			return 0;
+ 		}
+ 		s[(0xc00 + 4 * use) / 4] = 1U << 16;	/* S2CR TYPE=1: bypass */
+ 		__asm__ volatile ("dsb sy" ::: "memory");
+-		s[(0x800 + 4 * use) / 4] = 0x80000000U | 0x60;
+-		__asm__ volatile ("dsb sy" ::: "memory");
+-		if (((s[(0xc00 + 4 * use) / 4] >> 16) & 3) != 1 ||
+-		    s[(0x800 + 4 * use) / 4] != (0x80000000U | 0x60)) {
+-			printf("PANDORA UFS: SMMU direct bypass readback\n");
+-			return EIO;
++		if (ufsSlot < 0 || ((smr0 >> 16) & 0x7fff)) {
++			s[(0x800 + 4 * use) / 4] = 0x80000000U | 0x60;
++			__asm__ volatile ("dsb sy" ::: "memory");
+ 		}
+-		printf("PANDORA UFS: SMMU direct bypass slot %d (sCR0=%08x)\n", use, scr0);
++		printf("PANDORA UFS: SMMU direct bypass slot %d S2CR %08x->%08x SMR %08x->%08x\n",
++		    use, s2cr0, s[(0xc00 + 4 * use) / 4], smr0, s[(0x800 + 4 * use) / 4]);
+ 		return 0;
+ 	}
+ 
