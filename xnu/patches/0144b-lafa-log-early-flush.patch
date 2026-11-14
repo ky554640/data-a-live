@@ -1,17 +1,17 @@
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
-index 080ad5e..1e7c10f 100644
+index 443c4ea..8580a85 100644
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -51,6 +51,8 @@ extern int hz;
- static void sweet_log_start(void);
+@@ -52,6 +52,8 @@ static void sweet_log_start(void);
  #if defined(PANDORA)
  static void pandora_log_start(void);
+ static void pf_load_extents(void);
 +static int pl_flush(void);
 +static void pandora_halt_restart(unsigned int type);
  #endif
  extern void sweet_sample_start(void);
  extern void sweet_keys_init(void);
-@@ -1590,6 +1592,24 @@ sweet_ufs_init(void)
+@@ -1598,6 +1600,24 @@ sweet_ufs_init(void)
  		}
  	}
  	if (!fx_root) rw=0;
