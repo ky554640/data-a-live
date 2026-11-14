@@ -1,0 +1,25 @@
+diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
+index 1f2bd17..1a9c24f 100644
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -4774,8 +4774,20 @@ ubc_cs_blob_add(
+ 		tmp_blob.csb_platform_path = !!(tmp_blob.csb_flags & CS_PLATFORM_PATH);
+ 		tmp_blob.csb_teamid = NULL;
+ 	} else {
++#if defined(SWEET)
++		/*
++		 * No Image4/AMFI trust chain in standalone bring-up, so signature
++		 * validation never sets CS_PLATFORM_BINARY.  Mark every image as a
++		 * platform binary so userland (SpringBoard's SBStaticInitializer)
++		 * does not assert on the missing flag.
++		 */
++		tmp_blob.csb_platform_binary = 1;
++		tmp_blob.csb_flags |= CS_PLATFORM_BINARY;
++		tmp_blob.csb_platform_path = 0;
++#else
+ 		tmp_blob.csb_platform_binary = 0;
+ 		tmp_blob.csb_platform_path = 0;
++#endif
+ 	}
+ 
+ 	if ((flags & MAC_VNODE_CHECK_DYLD_SIM) && !tmp_blob.csb_platform_binary) {
