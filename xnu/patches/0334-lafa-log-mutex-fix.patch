@@ -1,0 +1,20 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index b5064d6..b863166 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -2523,9 +2523,13 @@ pandora_log_early(void)
+ 		return;
+ 	}
+ 	pl_ready = true;
+-	lck_mtx_lock(&sweet_ufs_lock);
++	/*
++	 * sweet_ufs_init already holds sweet_ufs_lock when it calls here.
++	 * Locking it again (and unlocking twice) panics with
++	 * "Mutex ... unexpectedly owned" @lock_mtx.c:179.  pl_flush() does
++	 * not take the lock itself; pl_thread and pandora_log_sync do.
++	 */
+ 	(void)pl_flush();
+-	lck_mtx_unlock(&sweet_ufs_lock);
+ 	printf("PANDORA LOG: early flush (%u extents, %llu bytes)\n", pl_next, pl_flushed);
+ }
+ #endif /* PANDORA */
