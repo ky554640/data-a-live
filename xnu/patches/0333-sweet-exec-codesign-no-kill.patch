@@ -1,0 +1,56 @@
+diff --git a/bsd/kern/kern_cs.c b/bsd/kern/kern_cs.c
+index 43b1ea6..73fefa3 100644
+--- a/bsd/kern/kern_cs.c
++++ b/bsd/kern/kern_cs.c
+@@ -263,6 +263,17 @@ cs_invalid_page(addr64_t vaddr, boolean_t *cs_killed)
+ 
+ 	flags = proc_getcsflags(p);
+ 
++#if defined(SWEET)
++	/*
++	 * No Image4/AMFI trust chain in standalone bring-up.  CS_KILL and
++	 * CS_HARD are inherited from a platform binary's own signature and
++	 * would kill initproc (or deny the mapping) on the first code page
++	 * that fails validation.  Drop both: validation can still clear
++	 * CS_VALID below, but the mapping is allowed.
++	 */
++	flags &= ~((uint64_t)CS_KILL | (uint64_t)CS_HARD);
++#endif
++
+ 	/* XXX for testing */
+ 	if (cs_force_kill) {
+ 		flags |= CS_KILL;
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 2dd75f1..2cd5bbc 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7757,6 +7757,29 @@ done:
+ 		}
+ 	}
+ 
++#if defined(SWEET)
++	/*
++	 * Standalone SWEET/PANDORA bring-up has no Image4/AMFI trust chain.
++	 * A code-signature validation failure here would SIGKILL initproc
++	 * (launchd) with OS_REASON_CODESIGNING and panic the kernel.  Keep
++	 * the csflags already set, release the failure reason and let exec
++	 * succeed so userland can boot.
++	 */
++	if (error != 0) {
++		printf("SWEET: ignoring exec code-signing failure %d on %s\n",
++		    error, p->p_name);
++		error = 0;
++	}
++	if (signature_failure_reason != OS_REASON_NULL) {
++		os_reason_free(signature_failure_reason);
++		signature_failure_reason = OS_REASON_NULL;
++	}
++	if (imgp->ip_cs_error != OS_REASON_NULL) {
++		os_reason_free(imgp->ip_cs_error);
++		imgp->ip_cs_error = OS_REASON_NULL;
++	}
++#endif
++
+ 	if (0 == error) {
+ 		/* The process's code signature related properties are
+ 		 * fully set up, so this is an opportune moment to log
