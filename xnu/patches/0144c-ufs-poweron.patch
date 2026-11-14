@@ -1,0 +1,78 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 443c4ea..db56c28 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -1468,6 +1468,62 @@ ufs_smmu_bypass(void)
+ 	printf("PANDORA UFS: SMMU bypass stream 0x60 slot %d bank %d\n", slot, bank);
+ 	return 0;
+ }
++
++/*
++ * Power the UFS controller back up.  On lafa the ABL leaves the PHY GDSC
++ * collapsed (PWR_ON=0) and HCE=0, and sweet_ufs only ever takes over a live
++ * host, so every read path fails before it starts (ufsroot0 unavailable).
++ * Minimal power-on sequence (Linux gdsc_enable + HCE), no QMP PHY calibration
++ * (the PHY registers are retained across power collapse; confirmed on
++ * hardware: hcs=0x100f after power-on).  GCC offsets are relative to the
++ * 0x77000 window: GDSCR 0x004, AXI_ENABLE 0x018, AHB_ENABLE 0x024.
++ */
++static int
++pandora_ufs_poweron(void)
++{
++	vm_offset_t gcc = ml_io_map(PU_GCC_PA + 0x77000, 0x1000);
++	if (!gcc) {
++		printf("PANDORA UFS: no GCC map\n");
++		return ENOMEM;
++	}
++	/* Deassert SW_COLLAPSE (bit0), enable RETAIN_FF (bit11). */
++	uint32_t gdsc = pu_rd(gcc, 0x004);
++	gdsc &= ~0x1U;
++	gdsc |= 0x800U;
++	*(volatile uint32_t *)(gcc + 0x004) = gdsc;
++	/* AXI and AHB clock branches: clear CLK_OFF (bit31), set EN (bit0). */
++	*(volatile uint32_t *)(gcc + 0x018) = 0x1U;
++	*(volatile uint32_t *)(gcc + 0x024) = 0x1U;
++	__asm__ volatile("dsb sy" ::: "memory");
++	/* Poll PWR_ON (bit31). */
++	for (unsigned i = 0; i < 10000; i++) {
++		if (pu_rd(gcc, 0x004) & 0x80000000U) {
++			break;
++		}
++		delay(1);
++	}
++	if (!(pu_rd(gcc, 0x004) & 0x80000000U)) {
++		printf("PANDORA UFS: GDSC power-on timeout (gdsc=%08x)\n", pu_rd(gcc, 0x004));
++		return ETIMEDOUT;
++	}
++	/* Enable the host controller (HCE) and wait for init. */
++	if (!(ufs_rd(REG_HCE) & 1)) {
++		ufs_wr(REG_HCE, 1);
++		for (unsigned i = 0; i < 100000; i++) {
++			if (ufs_rd(REG_HCE) & 1) {
++				break;
++			}
++			delay(1);
++		}
++		if (!(ufs_rd(REG_HCE) & 1)) {
++			printf("PANDORA UFS: HCE enable timeout\n");
++			return ETIMEDOUT;
++		}
++	}
++	printf("PANDORA UFS: powered on (GDSC=%08x HCE=%08x HCS=%08x)\n",
++	    pu_rd(gcc, 0x004), ufs_rd(REG_HCE), ufs_rd(REG_HCS));
++	return 0;
++}
+ #endif /* PANDORA */
+ 
+ static int
+@@ -1547,6 +1603,10 @@ sweet_ufs_init(void)
+ 	if (error) {
+ 		return error;
+ 	}
++	error = pandora_ufs_poweron();
++	if (error) {
++		return error;
++	}
+ #endif
+ 
+ 	lck_mtx_lock(&sweet_ufs_lock);
