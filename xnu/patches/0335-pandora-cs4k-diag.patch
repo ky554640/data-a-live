@@ -1,0 +1,57 @@
+diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
+index 3a54491..1f2bd17 100644
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -55,6 +55,10 @@
+ #include <sys/fcntl.h>
+ #include <sys/reboot.h>
+ #include <sys/code_signing.h>
++#if defined(SWEET)
++#include <pexpert/pexpert.h>
++extern bool pandora_log_sync(void);
++#endif
+ 
+ #include <mach/mach_types.h>
+ #include <mach/memory_object_types.h>
+@@ -5739,6 +5743,15 @@ __attribute__((noinline))
+ static int
+ cs_native4k_prepare(vnode_t vp, struct cs_blob *blob)
+ {
++#if defined(SWEET)
++	{
++		uint32_t cs4k = 1;
++		(void)PE_parse_boot_argn("pandora_cs4k", &cs4k, sizeof(cs4k));
++		if (cs4k == 0) {
++			return 0;
++		}
++	}
++#endif
+ 	const CS_CodeDirectory *cd = blob->csb_cd;
+ 	const struct cs_hash *md = blob->csb_hashtype;
+ 	vm_offset_t storage = 0;
+@@ -5753,6 +5766,14 @@ cs_native4k_prepare(vnode_t vp, struct cs_blob *blob)
+ 	if (blob->csb_hash_pageshift <= PAGE_SHIFT) {
+ 		return 0;
+ 	}
++#if defined(SWEET)
++	{
++		const char *cs4k_name = vnode_getname_printable(vp);
++		printf("PANDORA CS4K: begin %s\n", cs4k_name);
++		vnode_putname_printable(cs4k_name);
++		(void)pandora_log_sync();
++	}
++#endif
+ 	if (PAGE_SHIFT != 12 || blob->csb_hash_pageshift != 14 || cd == NULL || md == NULL ||
+ 	    md->cs_size == 0 || md->cs_size > CS_HASH_MAX_SIZE ||
+ 	    md->cs_digest_size > CS_HASH_MAX_SIZE || blob->csb_base_offset < 0 ||
+@@ -5858,6 +5879,10 @@ cs_native4k_prepare(vnode_t vp, struct cs_blob *blob)
+ 		vnode_putname_printable(name);
+ 	}
+ 	error = 0;
++#if defined(SWEET)
++	printf("PANDORA CS4K: end ok\n");
++	(void)pandora_log_sync();
++#endif
+ out:
+ 	if (buffer != NULL) {
+ 		kfree_data(buffer, bufsize);
