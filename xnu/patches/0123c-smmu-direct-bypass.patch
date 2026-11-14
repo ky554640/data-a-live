@@ -1,0 +1,57 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 5f3e424..e211fad 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -1340,8 +1340,50 @@ ufs_smmu_bypass(void)
+ 		}
+ 	}
+ 	if (bank < 0 || slot < 0) {
+-		printf("PANDORA UFS: no free SMMU stream group/bank (slot %d bank %d)\n", slot, bank);
+-		return ENXIO;
++		/*
++		 * lafa / SM8850: the ABL owns every context bank (all SCTLR.M set)
++		 * and leaves no free SMR slot, so the scan above always fails.  A
++		 * free context bank is not actually required: UFS DMA is physical,
++		 * so it is enough to point stream 0x60 at a bypass S2CR (TYPE=1).
++		 * Reuse the slot that already matches 0x60, or the first free SMR,
++		 * and leave every other stream (DPU/GPU/WLAN) alone.  A global
++		 * sCR0.CLIENTPD bypass would break the boot framebuffer, so it is
++		 * only a last resort when the SMR table is completely full.
++		 */
++		int ufsSlot = -1, freeSMR = -1;
++		for (unsigned i = 0; i < groups; i++) {
++			uint32_t smr = s[(0x800 + 4 * i) / 4];
++			if (!(smr & 0x80000000U)) {
++				if (freeSMR < 0) freeSMR = (int)i;
++				continue;
++			}
++			uint32_t mask = (smr >> 16) & 0x7fff;
++			if (((smr ^ 0x60) & 0xffff & ~mask) == 0) ufsSlot = (int)i;
++		}
++		int use = ufsSlot >= 0 ? ufsSlot : freeSMR;
++		printf("PANDORA UFS: no free bank, direct bypass (slot %d ufs %d free %d sCR0=%08x)\n",
++		    slot, ufsSlot, freeSMR, scr0);
++		if (use < 0) {
++			s[0] = scr0 | 1U;
++			__asm__ volatile ("dsb sy" ::: "memory");
++			if (!(s[0] & 1U)) {
++				printf("PANDORA UFS: SMMU global bypass readback\n");
++				return EIO;
++			}
++			printf("PANDORA UFS: SMMU global CLIENTPD bypass (sCR0=%08x)\n", s[0]);
++			return 0;
++		}
++		s[(0xc00 + 4 * use) / 4] = 1U << 16;	/* S2CR TYPE=1: bypass */
++		__asm__ volatile ("dsb sy" ::: "memory");
++		s[(0x800 + 4 * use) / 4] = 0x80000000U | 0x60;
++		__asm__ volatile ("dsb sy" ::: "memory");
++		if (((s[(0xc00 + 4 * use) / 4] >> 16) & 3) != 1 ||
++		    s[(0x800 + 4 * use) / 4] != (0x80000000U | 0x60)) {
++			printf("PANDORA UFS: SMMU direct bypass readback\n");
++			return EIO;
++		}
++		printf("PANDORA UFS: SMMU direct bypass slot %d (sCR0=%08x)\n", use, scr0);
++		return 0;
+ 	}
+ 
+ 	uint32_t cb = (pages + bank) * 4096;
