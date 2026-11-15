@@ -1,0 +1,103 @@
+diff --git a/iokit/Kernel/IOUserClient.cpp b/iokit/Kernel/IOUserClient.cpp
+index 163fce1..8a42393 100644
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -2654,6 +2654,87 @@ sweet_iolog_dict(const char *name, const char *what, OSObject *dict, const char
+ }
+ #endif
+ 
++#if defined(SWEET)
++/*
++ * 0346: census of user client method calls from the sweetiolog processes.
++ * Deduplicated per (service, selector) so a polled method cannot flood the log,
++ * but the first two of every pair keep the call order visible.
++ */
++struct sweet_uc_slot {
++	char     svc[40];
++	uint32_t sel;
++	uint32_t n;
++};
++
++static struct sweet_uc_slot sweet_uc_slots[64];
++static uint32_t sweet_uc_nslots;
++static uint32_t sweet_uc_lines;
++
++static bool
++sweet_uc_match(char *name, size_t len)
++{
++	if (!sweet_iolog_parsed) {
++		if (!PE_parse_boot_argn("sweetiolog", sweet_iolog_names, sizeof(sweet_iolog_names))) {
++			strlcpy(sweet_iolog_names, "backboardd,SpringBoard", sizeof(sweet_iolog_names));
++		}
++		sweet_iolog_parsed = 1;
++	}
++	proc_selfname(name, (int)len);
++	size_t n = strlen(name);
++	for (const char *t = sweet_iolog_names; *t;) {
++		const char *end = strchr(t, ',');
++		size_t tl = end ? (size_t)(end - t) : strlen(t);
++		if (tl == n && n > 0 && strncmp(t, name, n) == 0) {
++			return true;
++		}
++		if (!end) {
++			break;
++		}
++		t = end + 1;
++	}
++	return false;
++}
++
++static void
++sweet_uc_note(IOUserClient *uc, uint32_t selector)
++{
++	char name[32];
++	const char *sname = "?";
++	IOService *svc;
++	uint32_t i;
++
++	if (sweet_uc_lines >= 500) {
++		return;
++	}
++	if (!sweet_uc_match(name, sizeof(name))) {
++		return;
++	}
++	svc = uc ? uc->getService() : NULL;
++	if (svc != NULL && svc->getName() != NULL) {
++		sname = svc->getName();
++	}
++	for (i = 0; i < sweet_uc_nslots; i++) {
++		if (sweet_uc_slots[i].sel == selector &&
++		    strncmp(sweet_uc_slots[i].svc, sname, sizeof(sweet_uc_slots[i].svc)) == 0) {
++			if (++sweet_uc_slots[i].n <= 2) {
++				sweet_uc_lines++;
++				IOLog("UC %s: %s sel %u #%u\n", name, sname, selector, sweet_uc_slots[i].n);
++			}
++			return;
++		}
++	}
++	if (sweet_uc_nslots < 64) {
++		strlcpy(sweet_uc_slots[sweet_uc_nslots].svc, sname,
++		    sizeof(sweet_uc_slots[sweet_uc_nslots].svc));
++		sweet_uc_slots[sweet_uc_nslots].sel = selector;
++		sweet_uc_slots[sweet_uc_nslots].n = 1;
++		sweet_uc_nslots++;
++		sweet_uc_lines++;
++		IOLog("UC %s: %s sel %u #1\n", name, sname, selector);
++	}
++}
++#endif
++
+ kern_return_t
+ internal_io_service_get_matching_services(
+ 	mach_port_t main_port,
+@@ -6442,6 +6523,10 @@ IOUserClient::callExternalMethod(uint32_t selector, IOExternalMethodArguments *
+ {
+ 	IOReturn ret;
+ 
++#if defined(SWEET)
++	sweet_uc_note(this, selector);
++#endif
++
+ 	if (defaultLocking) {
+ 		if (defaultLockingSingleThreadExternalMethod) {
+ 			IORWLockWrite(&lock);
