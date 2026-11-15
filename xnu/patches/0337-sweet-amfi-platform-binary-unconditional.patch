@@ -1,0 +1,24 @@
+diff --git a/bsd/kern/sweet_amfi.c b/bsd/kern/sweet_amfi.c
+index 0108d5e..c4c9b25 100644
+--- a/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/sweet_amfi.c
+@@ -281,11 +281,15 @@ sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
+     __unused int flags, __unused unsigned int platform,
+     __unused char **fatal_failure_desc, __unused size_t *fatal_failure_desc_len)
+ {
+-	mount_t mp = vnode_mount(vp);
+ 	*cs_flags |= CS_SIGNED;
+-	if (mp != NULL && (vfs_flags(mp) & MNT_ROOTFS)) {
+-		*cs_flags |= CS_PLATFORM_BINARY;
+-	}
++	/*
++	 * Mark every signed binary as a platform binary unconditionally.  The
++	 * MNT_ROOTFS heuristic fails on this port (the iOS system volume is
++	 * mounted through BindFS/hardlinks, not as a rootfs mount), so the
++	 * rootfs-only test left SpringBoard without CS_PLATFORM_BINARY and it
++	 * asserted in SBStaticInitializer (StaticInitializer.m:39).
++	 */
++	*cs_flags |= CS_PLATFORM_BINARY;
+ 	if (cs_blob != cs_blob->csb_ro_addr && cs_blob->csb_entitlements == NULL) {
+ 		sweet_amfi_attach_entitlements(cs_blob);
+ 	}
