@@ -1,0 +1,49 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index b5e727b..685d93b 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -120,6 +120,22 @@ IOHIDEventSystem::start(IOService *provider)
+ }
+ #endif
+ 
++#if defined(SWEET)
++/*
++ * 0349: `sweethid_off=1` keeps the HID services out of the event system
++ * entirely, so backboardd's startHIDSystem has nothing to add and cannot enter
++ * the session-schedule wait.  Diagnostics only: no touch, no keys.
++ */
++static int
++sweet_hid_publish_off(void)
++{
++	int off = 0;
++
++	(void)PE_parse_boot_argn("sweethid_off", &off, sizeof(off));
++	return off != 0;
++}
++#endif
++
+ #if defined(SWEET)
+ /*
+  * 0347: defer publishing the HID services so backboardd's HID session startup
+@@ -523,7 +539,9 @@ SweetHIDButtons::start(IOService *provider)
+ 		}
+ 	}
+ 	gSweetButtons = this;
+-	sweet_hid_register(this);
++	if (!sweet_hid_publish_off()) {
++		sweet_hid_register(this);
++	}
+ 	IOLog("SWEET HID: buttons registered (test every %u s)\n", fTestSecs);
+ 	return true;
+ }
+@@ -607,7 +625,9 @@ SweetHIDTouch::start(IOService *provider)
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
+ 	setProperty("SurfaceHeight", (unsigned long long)(151 << 16), 32);
+ 	gSweetTouch = this;
+-	sweet_hid_register(this);
++	if (!sweet_hid_publish_off()) {
++		sweet_hid_register(this);
++	}
+ 	IOLog("SWEET HID: touch registered\n");
+ 	return true;
+ }
