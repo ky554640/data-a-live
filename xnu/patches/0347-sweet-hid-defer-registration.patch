@@ -1,8 +1,16 @@
 diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
-index 73bb93a..b5e727b 100644
+index 73bb93a..181e1b7 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp
-@@ -120,6 +120,60 @@ IOHIDEventSystem::start(IOService *provider)
+@@ -21,6 +21,7 @@
+ #include <IOKit/IOTimerEventSource.h>
+ #include <libkern/c++/OSArray.h>
+ #include <pexpert/pexpert.h>
++#include <kern/thread.h>
+ 
+ #include "IOHIDEventService.h"
+ #include "IOHIDEventServiceUserClient.h"
+@@ -120,6 +121,59 @@ IOHIDEventSystem::start(IOService *provider)
  }
  #endif
  
@@ -20,9 +28,8 @@ index 73bb93a..b5e727b 100644
 +sweet_hid_delay_thread(void *arg, __unused wait_result_t wr)
 +{
 +	struct sweet_hid_delay_arg *a = (struct sweet_hid_delay_arg *)arg;
-+	int chan = 0;
 +
-+	(void)tsleep(&chan, PZERO, "sweethid", a->secs * hz);
++	IOSleep((unsigned)a->secs * 1000);
 +	IOLog("SWEET HID: deferral over, registering %s\n", a->svc->getName());
 +	a->svc->registerService();
 +	a->svc->release();
