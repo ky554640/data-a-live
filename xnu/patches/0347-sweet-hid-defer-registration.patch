@@ -1,0 +1,83 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index 73bb93a..b5e727b 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -120,6 +120,60 @@ IOHIDEventSystem::start(IOService *provider)
+ }
+ #endif
+ 
++#if defined(SWEET)
++/*
++ * 0347: defer publishing the HID services so backboardd's HID session startup
++ * never has to schedule them.  See the patch header for the sample evidence.
++ */
++struct sweet_hid_delay_arg {
++	IOService *svc;
++	int        secs;
++};
++
++static void
++sweet_hid_delay_thread(void *arg, __unused wait_result_t wr)
++{
++	struct sweet_hid_delay_arg *a = (struct sweet_hid_delay_arg *)arg;
++	int chan = 0;
++
++	(void)tsleep(&chan, PZERO, "sweethid", a->secs * hz);
++	IOLog("SWEET HID: deferral over, registering %s\n", a->svc->getName());
++	a->svc->registerService();
++	a->svc->release();
++	IOFree(a, sizeof(*a));
++}
++
++static void
++sweet_hid_register(IOService *svc)
++{
++	int secs = 0;
++	struct sweet_hid_delay_arg *a;
++	thread_t thread;
++
++	PE_parse_boot_argn("sweethid_delay", &secs, sizeof(secs));
++	if (secs <= 0) {
++		svc->registerService();
++		return;
++	}
++	a = (struct sweet_hid_delay_arg *)IOMalloc(sizeof(*a));
++	if (a == NULL) {
++		svc->registerService();
++		return;
++	}
++	a->svc = svc;
++	a->secs = secs;
++	svc->retain();
++	if (kernel_thread_start(sweet_hid_delay_thread, a, &thread) != KERN_SUCCESS) {
++		svc->release();
++		IOFree(a, sizeof(*a));
++		svc->registerService();
++		return;
++	}
++	thread_deallocate(thread);
++	IOLog("SWEET HID: %s publication deferred %d s\n", svc->getName(), secs);
++}
++#endif
++
+ bool
+ IOHIDEventService::start(IOService *provider)
+ {
+@@ -469,7 +523,7 @@ SweetHIDButtons::start(IOService *provider)
+ 		}
+ 	}
+ 	gSweetButtons = this;
+-	registerService();
++	sweet_hid_register(this);
+ 	IOLog("SWEET HID: buttons registered (test every %u s)\n", fTestSecs);
+ 	return true;
+ }
+@@ -553,7 +607,7 @@ SweetHIDTouch::start(IOService *provider)
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
+ 	setProperty("SurfaceHeight", (unsigned long long)(151 << 16), 32);
+ 	gSweetTouch = this;
+-	registerService();
++	sweet_hid_register(this);
+ 	IOLog("SWEET HID: touch registered\n");
+ 	return true;
+ }
