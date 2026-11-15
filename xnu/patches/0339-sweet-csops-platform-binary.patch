@@ -1,0 +1,26 @@
+diff --git a/bsd/kern/kern_proc.c b/bsd/kern/kern_proc.c
+index 407a18b..7af5681 100644
+--- a/bsd/kern/kern_proc.c
++++ b/bsd/kern/kern_proc.c
+@@ -3210,9 +3210,21 @@ csops_internal(pid_t pid, int ops, user_addr_t uaddr, user_size_t usersize, user
+ 		if (cs_process_enforcement(pt)) {
+ 			retflags |= CS_ENFORCEMENT;
+ 		}
++#if defined(SWEET)
++		/*
++		 * SpringBoard's SBStaticInitializer asserts unless csops reports
++		 * CS_PLATFORM_BINARY.  The MAC hook marks blobs platform, but
++		 * SpringBoard's blob already exists at exec time (load_code_signature
++		 * takes the generation-check fast path and skips ubc_cs_blob_add /
++		 * mac_vnode_check_signature), so the flag is never set for it.  Report
++		 * every process as a platform binary.
++		 */
++		retflags |= CS_PLATFORM_BINARY;
++#else
+ 		if (csproc_get_platform_binary(pt)) {
+ 			retflags |= CS_PLATFORM_BINARY;
+ 		}
++#endif
+ 		if (csproc_get_platform_path(pt)) {
+ 			retflags |= CS_PLATFORM_PATH;
+ 		}
