@@ -1,8 +1,48 @@
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
-index 51f4481..c318832 100644
+index 51f4481..e4095ed 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -2089,6 +2089,10 @@ IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID,
+@@ -272,6 +272,7 @@ sweet_fb_scale(uint32_t p, uint32_t k)
+ #include <pexpert/pexpert.h>
+ #include <kern/clock.h>
+ #include <sys/proc.h>
++#include <kern/task.h>
+ #if defined(PANDORA)
+ extern "C" void flush_dcache(vm_offset_t addr, unsigned count, int phys);
+ #include <sys/errno.h>
+@@ -473,6 +474,31 @@ public:
+ };
+ 
+ OSDefineMetaClassAndStructors(IOMobileFramebufferUserClient, IOUserClient);
++
++#if defined(SWEET)
++/* 0342: who is driving the framebuffer?  The iOS side is silent about it. */
++static int
++sweet_fb_client_pid(task_t t)
++{
++	proc_t p = (t != NULL) ? (proc_t)get_bsdtask_info(t) : NULL;
++	return (p != NULL) ? proc_pid(p) : -1;
++}
++
++static const char *
++sweet_fb_client_comm(task_t t)
++{
++	static char name[64];
++	proc_t p = (t != NULL) ? (proc_t)get_bsdtask_info(t) : NULL;
++	if (p == NULL) {
++		return "?";
++	}
++	name[0] = 0;
++	proc_name(proc_pid(p), name, sizeof(name));
++	return name;
++}
++
++static uint8_t sweet_fb_sel_logs[96];
++#endif
+ #if defined(FUXI)
+ extern "C" void fuxi_display_kick(void);
+ #endif
+@@ -2089,6 +2115,10 @@ IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID,
  		return false;
  	}
  	fTask = owningTask;
@@ -13,7 +53,7 @@ index 51f4481..c318832 100644
  	return true;
  }
  
-@@ -2106,6 +2110,10 @@ IOMobileFramebufferUserClient::start(IOService *provider)
+@@ -2106,6 +2136,10 @@ IOMobileFramebufferUserClient::start(IOService *provider)
  IOReturn
  IOMobileFramebufferUserClient::clientClose(void)
  {
@@ -24,33 +64,7 @@ index 51f4481..c318832 100644
  	if (fFB != NULL) {
  		fFB->removeClient(this);
  		IOLockLock(fFB->fLock);
-@@ -2150,6 +2158,25 @@ IOMobileFramebufferUserClient::notify(uint32_t type, const uint64_t *values, uin
- 	    kIOUserNotifyOptionCanDrop);
- }
- 
-+#if defined(SWEET)
-+/* 0342: who is driving the framebuffer?  The iOS side is silent about it. */
-+static int
-+sweet_fb_client_pid(task_t t)
-+{
-+	proc_t p = (t != NULL) ? (proc_t)t->bsd_info : PROC_NULL;
-+	return p ? p->p_pid : -1;
-+}
-+
-+static const char *
-+sweet_fb_client_comm(task_t t)
-+{
-+	proc_t p = (t != NULL) ? (proc_t)t->bsd_info : PROC_NULL;
-+	return p ? p->p_comm : "?";
-+}
-+
-+static uint8_t sweet_fb_sel_logs[96];
-+#endif
-+
- static uint64_t sweet_fb_logged;        /* selectors already logged (< 64) */
- #if defined(PANDORA)
- static uint8_t sweet_fb_arg_logs[96];   /* 0220: calls of each unhandled selector logged with their arguments */
-@@ -2166,16 +2193,34 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+@@ -2166,16 +2200,34 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  
  	switch (selector) {
  	case kSweetFBGetLayerDefaultSurface:
