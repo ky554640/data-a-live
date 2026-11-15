@@ -1,0 +1,66 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 2cd5bbc..7e52730 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -6410,6 +6410,48 @@ bad:
+  *	vnode_getattr:???
+  *	vnode_authorize:???
+  */
++#if defined(SWEET)
++/*
++ * 0348: refuse exec of processes named by boot-arg sweetnoexec (comma
++ * separated).  Root-image edits do not survive HFS+ journal replay on this
++ * port, so a daemon that must not run is blocked here instead.
++ */
++static char sweet_noexec_names[128];
++static int sweet_noexec_parsed;
++
++static int
++sweet_noexec_denied(const char *name)
++{
++	size_t n;
++	const char *t;
++
++	if (!sweet_noexec_parsed) {
++		if (!PE_parse_boot_argn("sweetnoexec", sweet_noexec_names,
++		    sizeof(sweet_noexec_names))) {
++			sweet_noexec_names[0] = 0;
++		}
++		sweet_noexec_parsed = 1;
++	}
++	if (sweet_noexec_names[0] == 0 || name == NULL || name[0] == 0) {
++		return 0;
++	}
++	n = strlen(name);
++	for (t = sweet_noexec_names; *t;) {
++		const char *end = strchr(t, ',');
++		size_t tl = end ? (size_t)(end - t) : strlen(t);
++		if (tl == n && strncmp(t, name, n) == 0) {
++			printf("SWEET: refusing exec of %s (sweetnoexec)\n", name);
++			return 1;
++		}
++		if (!end) {
++			break;
++		}
++		t = end + 1;
++	}
++	return 0;
++}
++#endif
++
+ static int
+ exec_check_permissions(struct image_params *imgp)
+ {
+@@ -6419,6 +6461,12 @@ exec_check_permissions(struct image_params *imgp)
+ 	int error;
+ 	kauth_action_t action;
+ 
++#if defined(SWEET)
++	if (sweet_noexec_denied(vp->v_name)) {
++		return ENOENT;
++	}
++#endif
++
+ 	/* Only allow execution of regular files */
+ 	if (!vnode_isreg(vp)) {
+ 		return EACCES;
