@@ -1,0 +1,87 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 51f4481..c318832 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -2089,6 +2089,10 @@ IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID,
+ 		return false;
+ 	}
+ 	fTask = owningTask;
++#if defined(SWEET)
++	IOLog("SWEET FB: open by pid %d[%s] type %#x\n",
++	    sweet_fb_client_pid(owningTask), sweet_fb_client_comm(owningTask), type);
++#endif
+ 	return true;
+ }
+ 
+@@ -2106,6 +2110,10 @@ IOMobileFramebufferUserClient::start(IOService *provider)
+ IOReturn
+ IOMobileFramebufferUserClient::clientClose(void)
+ {
++#if defined(SWEET)
++	IOLog("SWEET FB: close by pid %d[%s]\n",
++	    sweet_fb_client_pid(fTask), sweet_fb_client_comm(fTask));
++#endif
+ 	if (fFB != NULL) {
+ 		fFB->removeClient(this);
+ 		IOLockLock(fFB->fLock);
+@@ -2150,6 +2158,25 @@ IOMobileFramebufferUserClient::notify(uint32_t type, const uint64_t *values, uin
+ 	    kIOUserNotifyOptionCanDrop);
+ }
+ 
++#if defined(SWEET)
++/* 0342: who is driving the framebuffer?  The iOS side is silent about it. */
++static int
++sweet_fb_client_pid(task_t t)
++{
++	proc_t p = (t != NULL) ? (proc_t)t->bsd_info : PROC_NULL;
++	return p ? p->p_pid : -1;
++}
++
++static const char *
++sweet_fb_client_comm(task_t t)
++{
++	proc_t p = (t != NULL) ? (proc_t)t->bsd_info : PROC_NULL;
++	return p ? p->p_comm : "?";
++}
++
++static uint8_t sweet_fb_sel_logs[96];
++#endif
++
+ static uint64_t sweet_fb_logged;        /* selectors already logged (< 64) */
+ #if defined(PANDORA)
+ static uint8_t sweet_fb_arg_logs[96];   /* 0220: calls of each unhandled selector logged with their arguments */
+@@ -2166,16 +2193,34 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 
+ 	switch (selector) {
+ 	case kSweetFBGetLayerDefaultSurface:
++#if defined(SWEET)
++		if (sweet_fb_sel_logs[3]++ < 8) {
++			IOLog("SWEET FB: pid %d[%s] sel 3 GetLayerDefaultSurface\n",
++			    sweet_fb_client_pid(fTask), sweet_fb_client_comm(fTask));
++		}
++#endif
+ 		out[0] = sweet_surface_port_in_task(fFB->fSurface, fTask);
+ 		outCount = 1;
+ 		break;
+ 	case kSweetFBSwapBegin:
++#if defined(SWEET)
++		if (sweet_fb_sel_logs[4]++ < 8) {
++			IOLog("SWEET FB: pid %d[%s] sel 4 SwapBegin\n",
++			    sweet_fb_client_pid(fTask), sweet_fb_client_comm(fTask));
++		}
++#endif
+ 		IOLockLock(fFB->fLock);
+ 		out[0] = ++fFB->fSwapID;
+ 		IOLockUnlock(fFB->fLock);
+ 		outCount = 1;
+ 		break;
+ 	case kSweetFBSwapEnd: {
++#if defined(SWEET)
++		if (sweet_fb_sel_logs[5]++ < 8) {
++			IOLog("SWEET FB: pid %d[%s] sel 5 SwapEnd\n",
++			    sweet_fb_client_pid(fTask), sweet_fb_client_comm(fTask));
++		}
++#endif
+ 		uint8_t rec[SWEET_FB_SWAP_REC_SIZE];
+ 		if (args->structureInputDescriptor != NULL ||
+ 		    args->structureInputSize < SWEET_FB_SWAP_REC_SIZE) {
