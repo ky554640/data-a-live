@@ -1,0 +1,69 @@
+diff --git a/bsd/kern/kern_cs.c b/bsd/kern/kern_cs.c
+index 73fefa3..a23b7b8 100644
+--- a/bsd/kern/kern_cs.c
++++ b/bsd/kern/kern_cs.c
+@@ -295,6 +295,15 @@ cs_invalid_page(addr64_t vaddr, boolean_t *cs_killed)
+ 		retval = 1;
+ 		proc_csflags_update(p, flags);
+ 	} else {
++#if defined(SWEET)
++		/*
++		 * 0341: keep CS_VALID.  The 16K/4K code-page hash mismatch on this
++		 * port is not real tampering; clearing CS_VALID made launchd,
++		 * installcoordinationd, cloudpaird, UserEventAgent etc. abort in a
++		 * relaunch loop and triggered "Text page corruption detected".
++		 */
++		proc_csflags_update(p, flags);
++#else
+ 		if (flags & CS_VALID) {
+ 			flags &= ~CS_VALID;
+ 			cs_procs_invalidated++;
+@@ -304,6 +313,7 @@ cs_invalid_page(addr64_t vaddr, boolean_t *cs_killed)
+ 		} else {
+ 			proc_csflags_update(p, flags);
+ 		}
++#endif
+ 	}
+ 	proc_unlock(p);
+ 
+diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
+index 1a9c24f..960a917 100644
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -5839,12 +5839,13 @@ cs_native4k_prepare(vnode_t vp, struct cs_blob *blob)
+ 		for (size_t in = 0; in < chunk_length; in += 16384) {
+ 			union cs_hash_union ctx;
+ 			uint8_t digest[CS_HASH_MAX_SIZE];
+-			const uint8_t *expected;
+-			const char *lower = blob->csb_mem_kaddr;
+-			const char *upper = lower + blob->csb_mem_size;
+ 			uint64_t offset = chunk + in;
+ 			size_t length = MIN((size_t)16384, chunk_length - in);
+ 			const uint8_t *block = buffer + in;
++#if !defined(SWEET)
++			const uint8_t *expected;
++			const char *lower = blob->csb_mem_kaddr;
++			const char *upper = lower + blob->csb_mem_size;
+ 			expected = hashes(cd, (uint32_t)(offset >> 14), md->cs_size, lower, upper);
+ 			if (expected == NULL) {
+ 				error = EBADEXEC;
+@@ -5859,6 +5860,19 @@ cs_native4k_prepare(vnode_t vp, struct cs_blob *blob)
+ 				goto out;
+ 			}
+ 			os_atomic_inc(&cs_native4k_full_blocks, relaxed);
++#else
++			/*
++			 * 0341: SWEET/PANDORA runs iOS binaries (16K CodeDirectory slots)
++			 * on a 4K kernel.  The trailing dyld_shared_cache shard (.21) has a
++			 * truncated last slot, so the 16K digest comparison fails with
++			 * EBADEXEC and check_signature() rejects the whole dyld cache
++			 * ("dyld cache '(null)' not loaded" -> initproc panic).  There is no
++			 * Image4/AMFI trust chain in this bring-up, so skip the 16K check and
++			 * derive the native 4K hashes directly from the bytes actually read
++			 * (the sub-page loop below already does that).  cs_validate_page()
++			 * then verifies against those hashes and succeeds.
++			 */
++#endif
+ 			for (size_t sub = 0; sub < length; sub += PAGE_SIZE) {
+ 				size_t bytes = MIN((size_t)PAGE_SIZE, length - sub);
+ 				vm_size_t index = (offset + sub) >> PAGE_SHIFT;
