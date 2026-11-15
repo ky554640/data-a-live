@@ -1,0 +1,13 @@
+diff --git a/bsd/kern/kern_proc.c b/bsd/kern/kern_proc.c
+index 7af5681..8a67897 100644
+--- a/bsd/kern/kern_proc.c
++++ b/bsd/kern/kern_proc.c
+@@ -3219,7 +3219,7 @@ csops_internal(pid_t pid, int ops, user_addr_t uaddr, user_size_t usersize, user
+ 		 * mac_vnode_check_signature), so the flag is never set for it.  Report
+ 		 * every process as a platform binary.
+ 		 */
+-		retflags |= CS_PLATFORM_BINARY;
++		retflags |= CS_PLATFORM_BINARY | CS_VALID;
+ #else
+ 		if (csproc_get_platform_binary(pt)) {
+ 			retflags |= CS_PLATFORM_BINARY;
