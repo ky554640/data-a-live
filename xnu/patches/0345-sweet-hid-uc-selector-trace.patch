@@ -1,0 +1,44 @@
+diff --git a/iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp b/iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp
+index 256a977..3aee43d 100644
+--- a/iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp
++++ b/iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp
+@@ -131,6 +131,11 @@ IOReturn IOHIDEventServiceUserClient::registerNotificationPortGated(mach_port_t
+ {
+     releaseNotificationPort(_queuePort);
+     _queuePort = port;
++
++#if defined(SWEET)
++    IOLog("SWEET HID UC: %s notify port %#x queue %s\n",
++        _owner ? _owner->getName() : "?", port, _queue ? "yes" : "NO");
++#endif
+     
+     if (_queue) {
+         _queue->setNotificationPort(port);
+@@ -187,6 +192,10 @@ IOReturn IOHIDEventServiceUserClient::clientMemoryForTypeGated(
+         *memory  = memoryToShare;
+     }
+         
++#if defined(SWEET)
++    IOLog("SWEET HID UC: %s map memory queue %s -> %#x\n",
++        _owner ? _owner->getName() : "?", _queue ? "yes" : "NO", ret);
++#endif
+     return ret;
+ }
+ 
+@@ -200,6 +209,16 @@ IOReturn IOHIDEventServiceUserClient::externalMethod(uint32_t selector, IOExtern
+     ExternalMethodGatedArguments gatedArguments = {selector, args};
+     IOReturn result;
+ 
++#if defined(SWEET)
++    {
++        static uint32_t sweet_uc_sel_log[16];
++        if (selector < 16 && sweet_uc_sel_log[selector]++ < 6) {
++            IOLog("SWEET HID UC: %s sel %u\n",
++                _owner ? _owner->getName() : "?", (unsigned) selector);
++        }
++    }
++#endif
++
+     result = _commandGate->runAction(OSMemberFunctionCast(IOCommandGate::Action, this, &IOHIDEventServiceUserClient::externalMethodGated), &gatedArguments);
+ 
+     return result;
