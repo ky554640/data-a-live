@@ -1,0 +1,59 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index 79ddb13..ffa3c4e 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -45,6 +45,38 @@ OSDefineMetaClassAndStructors(IOHIDEventServiceClient, OSObject);
+ #define super IOService
+ OSDefineMetaClassAndStructors(IOHIDEventService, IOService);
+ 
++#if defined(SWEET)
++/*
++ * 0343: backboardd's -[BKHIDSystem startHIDSystem] blocks on a semaphore that
++ * IOKit signals once a service of class IOHIDEventSystem is published.  Apple
++ * ships that in the closed IOHIDFamily kext; this kernel has no such class, so
++ * the semaphore never fires, backboardd never reaches display setup, and
++ * SpringBoard waits forever in BKSDisplayServicesGetMainScreenInfo.
++ *
++ * Publish a minimal one.  It has no user client yet on purpose: if backboardd
++ * tries to open it, the failing IOServiceOpen shows up in the IOKit trace and
++ * the next patch adds the selectors it asks for.
++ */
++class IOHIDEventSystem : public IOService {
++	OSDeclareDefaultStructors(IOHIDEventSystem);
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOHIDEventSystem, IOService);
++
++bool
++IOHIDEventSystem::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	registerService();
++	IOLog("SWEET HID: IOHIDEventSystem published\n");
++	return true;
++}
++#endif
++
+ bool
+ IOHIDEventService::start(IOService *provider)
+ {
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 1397785..6971872 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -110,6 +110,11 @@ const char * gIOKernelConfigTables =
+     "     'IOMatchCategory' = SweetHIDTouch;"
+     "   },"
+     "   {"
++    "     'IOClass'         = IOHIDEventSystem;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = IOHIDEventSystem;"
++    "   },"
++    "   {"
+     "     'IOClass'         = SweetBattery;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = SweetBattery;"
