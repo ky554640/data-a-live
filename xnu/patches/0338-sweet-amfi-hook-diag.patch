@@ -1,0 +1,22 @@
+diff --git a/bsd/kern/sweet_amfi.c b/bsd/kern/sweet_amfi.c
+index c4c9b25..b3c3e22 100644
+--- a/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/sweet_amfi.c
+@@ -281,6 +281,8 @@ sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
+     __unused int flags, __unused unsigned int platform,
+     __unused char **fatal_failure_desc, __unused size_t *fatal_failure_desc_len)
+ {
++	printf("SWEET AMFI: hook pid=%d flags_in=0x%x\n",
++	    proc_getpid(current_proc()), *cs_flags);
+ 	*cs_flags |= CS_SIGNED;
+ 	/*
+ 	 * Mark every signed binary as a platform binary unconditionally.  The
+@@ -290,6 +292,8 @@ sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
+ 	 * asserted in SBStaticInitializer (StaticInitializer.m:39).
+ 	 */
+ 	*cs_flags |= CS_PLATFORM_BINARY;
++	printf("SWEET AMFI: hook pid=%d flags_out=0x%x\n",
++	    proc_getpid(current_proc()), *cs_flags);
+ 	if (cs_blob != cs_blob->csb_ro_addr && cs_blob->csb_entitlements == NULL) {
+ 		sweet_amfi_attach_entitlements(cs_blob);
+ 	}
