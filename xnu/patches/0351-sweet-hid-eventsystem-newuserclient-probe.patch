@@ -1,0 +1,54 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index f66448d..a6b7c75 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -58,10 +58,15 @@ OSDefineMetaClassAndStructors(IOHIDEventService, IOService);
+  * tries to open it, the failing IOServiceOpen shows up in the IOKit trace and
+  * the next patch adds the selectors it asks for.
+  */
++class IOHIDEventSystemUserClient;
++
+ class IOHIDEventSystem : public IOService {
+ 	OSDeclareDefaultStructors(IOHIDEventSystem);
+ public:
+ 	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	/* 0351: probe + repair for the user client backboardd should open. */
++	IOReturn newUserClient(task_t owningTask, void *securityID, UInt32 type,
++	    OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
+ };
+ 
+ #if defined(SWEET)
+@@ -120,6 +125,33 @@ IOHIDEventSystemUserClient::externalMethod(uint32_t selector, IOExternalMethodAr
+ 
+ OSDefineMetaClassAndStructors(IOHIDEventSystem, IOService);
+ 
++IOReturn
++IOHIDEventSystem::newUserClient(task_t owningTask, void *securityID, UInt32 type,
++    OSDictionary *properties, IOUserClient **handler)
++{
++	IOReturn ret;
++
++	IOLog("SWEET HID: IOHIDEventSystem newUserClient type %#x props %p ucc %s\n",
++	    type, properties, getProperty("IOUserClientClass") ? "set" : "missing");
++	ret = super::newUserClient(owningTask, securityID, type, properties, handler);
++	IOLog("SWEET HID: IOHIDEventSystem newUserClient -> %#x handler %p\n",
++	    ret, handler ? *handler : NULL);
++	if (ret != kIOReturnSuccess && handler != NULL) {
++		IOHIDEventSystemUserClient *client = OSTypeAlloc(IOHIDEventSystemUserClient);
++		if (client != NULL && client->initWithTask(owningTask, securityID, type) &&
++		    client->attach(this) && client->start(this)) {
++			*handler = client;
++			IOLog("SWEET HID: IOHIDEventSystem fallback client ok\n");
++			return kIOReturnSuccess;
++		}
++		if (client != NULL) {
++			client->release();
++		}
++		IOLog("SWEET HID: IOHIDEventSystem fallback client failed\n");
++	}
++	return ret;
++}
++
+ bool
+ IOHIDEventSystem::start(IOService *provider)
+ {
