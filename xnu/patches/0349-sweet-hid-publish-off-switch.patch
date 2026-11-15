@@ -1,8 +1,8 @@
 diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
-index b5e727b..685d93b 100644
+index 181e1b7..c191783 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp
-@@ -120,6 +120,22 @@ IOHIDEventSystem::start(IOService *provider)
+@@ -121,6 +121,22 @@ IOHIDEventSystem::start(IOService *provider)
  }
  #endif
  
