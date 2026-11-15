@@ -1,8 +1,8 @@
 diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
-index 685d93b..81d2ee4 100644
+index c191783..f66448d 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp
-@@ -86,6 +86,18 @@ IOHIDEventSystemUserClient::initWithTask(task_t owningTask, void *securityID, UI
+@@ -87,6 +87,18 @@ IOHIDEventSystemUserClient::initWithTask(task_t owningTask, void *securityID, UI
  	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {
  		return false;
  	}
