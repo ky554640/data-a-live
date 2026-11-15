@@ -1,0 +1,40 @@
+diff --git a/bsd/dev/sweet_sample.c b/bsd/dev/sweet_sample.c
+index b40eccd..db4ce87 100644
+--- a/bsd/dev/sweet_sample.c
++++ b/bsd/dev/sweet_sample.c
+@@ -70,11 +70,32 @@ sweet_sample_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (sweet_sample_names[0] == '-') {
+ 		return;
+ 	}
+-	(void)tsleep(&chan, PZERO, "sweetsmp", 90 * hz);
+-	for (int i = 0; i < 40; i++) {
++	int wait_secs = 90;
++	int interval_secs = 120;
++	int max_samples = 40;
++
++	/* 0352: the panel console is often the only debugging channel; let the
++	 * boot-args choose how dense the samples are. */
++	(void)PE_parse_boot_argn("sweetsample_wait", &wait_secs, sizeof(wait_secs));
++	(void)PE_parse_boot_argn("sweetsample_secs", &interval_secs, sizeof(interval_secs));
++	(void)PE_parse_boot_argn("sweetsample_max", &max_samples, sizeof(max_samples));
++	if (wait_secs <= 0) {
++		wait_secs = 90;
++	}
++	if (interval_secs <= 0) {
++		interval_secs = 120;
++	}
++	if (max_samples <= 0) {
++		max_samples = 40;
++	}
++	printf("SMP timing: first %d s, every %d s, max %d\n",
++	    wait_secs, interval_secs, max_samples);
++
++	(void)tsleep(&chan, PZERO, "sweetsmp", wait_secs * hz);
++	for (int i = 0; i < max_samples; i++) {
+ 		printf("SMP --- sample %d\n", i);
+ 		proc_iterate(PROC_ALLPROCLIST, sweet_sample_proc, NULL, NULL, NULL);
+-		(void)tsleep(&chan, PZERO, "sweetsmp", 120 * hz);
++		(void)tsleep(&chan, PZERO, "sweetsmp", interval_secs * hz);
+ 	}
+ }
+ 
