@@ -1,36 +1,17 @@
 diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
-index ffa3c4e..2e04694 100644
+index ffa3c4e..73bb93a 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp
-@@ -63,6 +63,68 @@ public:
+@@ -63,6 +63,48 @@ public:
  	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
  };
  
 +#if defined(SWEET)
-+static int
-+sweet_hid_pid(task_t t)
-+{
-+	proc_t p = (t != NULL) ? (proc_t)get_bsdtask_info(t) : NULL;
-+	return (p != NULL) ? proc_pid(p) : -1;
-+}
-+
-+static const char *
-+sweet_hid_comm(task_t t)
-+{
-+	static char name[64];
-+	proc_t p = (t != NULL) ? (proc_t)get_bsdtask_info(t) : NULL;
-+	if (p == NULL) {
-+		return "?";
-+	}
-+	name[0] = 0;
-+	proc_name(proc_pid(p), name, sizeof(name));
-+	return name;
-+}
-+
 +/*
 + * 0344: the service from 0343 was published but never opened.  Give it a user
 + * client, log who opens it and which selectors it asks for, and answer
 + * success to everything so a client that only wants to connect can proceed.
++ * (No proc_t here: sys/proc.h does not expose it to this C++ unit.)
 + */
 +class IOHIDEventSystemUserClient : public IOUserClient {
 +	OSDeclareDefaultStructors(IOHIDEventSystemUserClient);
@@ -48,8 +29,7 @@ index ffa3c4e..2e04694 100644
 +	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {
 +		return false;
 +	}
-+	IOLog("SWEET HID: IOHIDEventSystem open by pid %d[%s] type %#x\n",
-+	    sweet_hid_pid(owningTask), sweet_hid_comm(owningTask), type);
++	IOLog("SWEET HID: IOHIDEventSystem open by task %p type %#x\n", owningTask, type);
 +	return true;
 +}
 +
@@ -71,7 +51,7 @@ index ffa3c4e..2e04694 100644
  OSDefineMetaClassAndStructors(IOHIDEventSystem, IOService);
  
  bool
-@@ -71,6 +133,7 @@ IOHIDEventSystem::start(IOService *provider)
+@@ -71,6 +113,7 @@ IOHIDEventSystem::start(IOService *provider)
  	if (!IOService::start(provider)) {
  		return false;
  	}
